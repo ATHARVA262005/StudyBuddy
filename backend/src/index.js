@@ -8,7 +8,7 @@ import dotenv from 'dotenv';
 const app = express();
 
 app.use(cors({
-  origin: 'http://localhost:5173,https://studybuddy.atharvaralegankar.tech',
+  origin: 'https://studybuddy.atharvaralegankar.tech',
   methods: ['GET', 'POST'],
   credentials: true
 }));
