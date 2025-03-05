@@ -169,8 +169,16 @@ app.post('/api/clear-auth', (req, res) => {
   res.json({ success: true });
 });
 
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'OK' });
+});
+
 app.get('/', (req, res) => {
   res.send('Hello from the backend');
+});
+
+app.use((req, res) => {
+  res.status(404).send('Not Found');
 });
 
 const PORT = process.env.PORT || 3000;
