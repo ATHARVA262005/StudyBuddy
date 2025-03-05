@@ -5,10 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npx vite build",
+    "build": "node node_modules/.bin/vite build",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview",
-    "postinstall": "chmod +x ./node_modules/.bin/vite"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.0.9",
