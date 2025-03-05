@@ -52,9 +52,15 @@ export const PDFReader = ({ onTextExtracted }) => {
       const page = await pdf.getPage(pageNum);
       const textContent = await page.getTextContent();
       
-      // If there's text content, use it
-      if (textContent.items.length > 0) {
-        return textContent.items.map(item => item.str).join(' ');
+      // Try built-in text extraction first
+      const builtInText = textContent.items
+        .map(item => item.str)
+        .join(' ')
+        .trim();
+
+      // If built-in extraction found text, use it
+      if (builtInText) {
+        return builtInText;
       }
       
       // If no text found, try OCR
@@ -73,10 +79,10 @@ export const PDFReader = ({ onTextExtracted }) => {
       const { data: { text } } = await worker.recognize(canvas);
       await worker.terminate();
       
-      return text;
+      return text || `[Page ${pageNum}: No text could be extracted]`;
     } catch (error) {
       console.error(`Error processing page ${pageNum}:`, error);
-      return '';
+      return `[Error extracting text from page ${pageNum}]`;
     }
   };
 
