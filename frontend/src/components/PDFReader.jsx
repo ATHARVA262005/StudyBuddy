@@ -1,4 +1,4 @@
-import * as React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { createWorker } from 'tesseract.js';
 
 export const PDFReader = ({ onTextExtracted }) => {
@@ -11,28 +11,22 @@ export const PDFReader = ({ onTextExtracted }) => {
   const [hasExtractedText, setHasExtractedText] = useState(false);
   const [pdfJsLoaded, setPdfJsLoaded] = useState(false);
 
-  React.useEffect(() => {
-    let checkPdfJs;
-    const initPdfJs = () => {
-      if (typeof window !== 'undefined' && window.pdfjsLib) {
-        setPdfJsLoaded(true);
-      } else {
-        checkPdfJs = setInterval(() => {
-          if (typeof window !== 'undefined' && window.pdfjsLib) {
-            setPdfJsLoaded(true);
-            clearInterval(checkPdfJs);
-          }
-        }, 100);
-      }
-    };
-
-    initPdfJs();
-    
-    return () => {
-      if (checkPdfJs) {
-        clearInterval(checkPdfJs);
-      }
-    };
+  useEffect(() => {
+    // Check if PDF.js is already loaded
+    if (window.pdfjsLib) {
+      setPdfJsLoaded(true);
+    } else {
+      // Set up a listener to detect when PDF.js is loaded
+      const checkPdfJs = setInterval(() => {
+        if (window.pdfjsLib) {
+          setPdfJsLoaded(true);
+          clearInterval(checkPdfJs);
+        }
+      }, 100);
+      
+      // Clean up the interval
+      return () => clearInterval(checkPdfJs);
+    }
   }, []);
 
   const handleFileChange = async (event) => {
