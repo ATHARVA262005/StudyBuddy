@@ -11,7 +11,7 @@ export const ChatInterface = ({ initialContent, topic }) => {
   };
 
   const sendChatRequest = useCallback(async (promptText) => {
-    const response = await fetch('http://localhost:3000/api/chat', {
+    const response = await fetch('https://studybuddybackendd.vercel.app/api/chat', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },

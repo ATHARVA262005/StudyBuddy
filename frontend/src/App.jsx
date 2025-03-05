@@ -23,7 +23,7 @@ const App = () => {
     const checkApiKeyStatus = async () => {
       setIsChecking(true);
       try {
-        const response = await fetch('http://localhost:3000/api/check-auth', {
+        const response = await fetch('https://studybuddybackendd.vercel.app/api/check-auth', {
           credentials: 'include'
         });
         const data = await response.json();
