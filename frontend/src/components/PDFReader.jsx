@@ -2,14 +2,14 @@ import * as React from 'react';
 import { createWorker } from 'tesseract.js';
 
 export const PDFReader = ({ onTextExtracted }) => {
-  const [file, setFile] = useState(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState(null);
-  const [pageCount, setPageCount] = useState(0);
-  const [pageRange, setPageRange] = useState({ start: 1, end: 1 });
-  const [topic, setTopic] = useState('');
-  const [hasExtractedText, setHasExtractedText] = useState(false);
-  const [pdfJsLoaded, setPdfJsLoaded] = useState(false);
+  const [file, setFile] = React.useState(null);
+  const [isProcessing, setIsProcessing] = React.useState(false);
+  const [error, setError] = React.useState(null);
+  const [pageCount, setPageCount] = React.useState(0);
+  const [pageRange, setPageRange] = React.useState({ start: 1, end: 1 });
+  const [topic, setTopic] = React.useState('');
+  const [hasExtractedText, setHasExtractedText] = React.useState(false);
+  const [pdfJsLoaded, setPdfJsLoaded] = React.useState(false);
 
   React.useEffect(() => {
     let checkPdfJs;
