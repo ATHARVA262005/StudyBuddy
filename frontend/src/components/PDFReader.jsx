@@ -1,15 +1,15 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createWorker } from 'tesseract.js';
 
 export const PDFReader = ({ onTextExtracted }) => {
-  const [file, setFile] = React.useState(null);
-  const [isProcessing, setIsProcessing] = React.useState(false);
-  const [error, setError] = React.useState(null);
-  const [pageCount, setPageCount] = React.useState(0);
-  const [pageRange, setPageRange] = React.useState({ start: 1, end: 1 });
-  const [topic, setTopic] = React.useState('');
-  const [hasExtractedText, setHasExtractedText] = React.useState(false);
-  const [pdfJsLoaded, setPdfJsLoaded] = React.useState(false);
+  const [file, setFile] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState(null);
+  const [pageCount, setPageCount] = useState(0);
+  const [pageRange, setPageRange] = useState({ start: 1, end: 1 });
+  const [topic, setTopic] = useState('');
+  const [hasExtractedText, setHasExtractedText] = useState(false);
+  const [pdfJsLoaded, setPdfJsLoaded] = useState(false);
 
   useEffect(() => {
     // Check if PDF.js is already loaded
@@ -37,7 +37,7 @@ export const PDFReader = ({ onTextExtracted }) => {
       
       try {
         const arrayBuffer = await selectedFile.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+        const pdf = await window.pdfjsLib.getDocument(arrayBuffer).promise;
         setPageCount(pdf.numPages);
         setPageRange({ start: 1, end: Math.min(5, pdf.numPages) });
       } catch (err) {
@@ -81,7 +81,7 @@ export const PDFReader = ({ onTextExtracted }) => {
 
   const extractTextFromPDF = async (file, range) => {
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+    const pdf = await window.pdfjsLib.getDocument(arrayBuffer).promise;
     const textParts = [];
 
     for (let i = range.start; i <= range.end; i++) {
