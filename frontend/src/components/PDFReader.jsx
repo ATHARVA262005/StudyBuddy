@@ -1,5 +1,4 @@
-import React from 'react';
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createWorker } from 'tesseract.js';
 
 export const PDFReader = ({ onTextExtracted }) => {
@@ -11,8 +10,6 @@ export const PDFReader = ({ onTextExtracted }) => {
   const [topic, setTopic] = useState('');
   const [hasExtractedText, setHasExtractedText] = useState(false);
   const [pdfJsLoaded, setPdfJsLoaded] = useState(false);
-  const [tesseractWorker, setTesseractWorker] = useState(null);
-  const workerInitialized = useRef(false);
 
   useEffect(() => {
     // Check if PDF.js is already loaded
@@ -32,38 +29,6 @@ export const PDFReader = ({ onTextExtracted }) => {
     }
   }, []);
 
-  useEffect(() => {
-    const initWorker = async () => {
-      try {
-        const worker = await createWorker({
-          logger: progress => console.log('Tesseract loading:', progress),
-          errorHandler: err => console.error('Tesseract error:', err)
-        });
-        await worker.loadLanguage('eng');
-        await worker.initialize('eng');
-        await worker.setParameters({
-          tessedit_ocr_engine_mode: 3,
-          preserve_interword_spaces: '1'
-        });
-        setTesseractWorker(worker);
-        workerInitialized.current = true;
-      } catch (err) {
-        console.error('Failed to initialize Tesseract worker:', err);
-        setError('OCR initialization failed. Some features might not work properly.');
-      }
-    };
-
-    if (!workerInitialized.current) {
-      initWorker();
-    }
-
-    return () => {
-      if (tesseractWorker) {
-        tesseractWorker.terminate();
-      }
-    };
-  }, []);
-
   const handleFileChange = async (event) => {
     const selectedFile = event.target.files[0];
     if (selectedFile) {
@@ -72,7 +37,7 @@ export const PDFReader = ({ onTextExtracted }) => {
       
       try {
         const arrayBuffer = await selectedFile.arrayBuffer();
-        const pdf = await window.pdfjsLib.getDocument(arrayBuffer).promise;
+        const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
         setPageCount(pdf.numPages);
         setPageRange({ start: 1, end: Math.min(5, pdf.numPages) });
       } catch (err) {
@@ -84,132 +49,39 @@ export const PDFReader = ({ onTextExtracted }) => {
   const extractTextFromPage = async (pdf, pageNum) => {
     try {
       const page = await pdf.getPage(pageNum);
-      let extractedText = '';
-
-      // 1. Get text content with all possible options enabled
-      const textContent = await page.getTextContent({
-        normalizeWhitespace: true,
-        disableCombineTextItems: false,
-        includeMarkedContent: true
-      });
-
-      // Sort text items by their vertical position first, then horizontal
-      const sortedItems = textContent.items.sort((a, b) => {
-        const yDiff = Math.abs(b.transform[5] - a.transform[5]);
-        if (yDiff < 5) { // If items are roughly on the same line
-          return a.transform[4] - b.transform[4]; // Sort by x position
-        }
-        return b.transform[5] - a.transform[5]; // Sort by y position
-      });
-
-      // Extract text preserving layout
-      let currentY = null;
-      let lineTexts = [];
-      let currentLine = [];
-
-      sortedItems.forEach(item => {
-        const y = Math.round(item.transform[5]);
-        if (currentY === null) {
-          currentY = y;
-        }
-
-        if (Math.abs(y - currentY) > 5) { // New line detected
-          if (currentLine.length > 0) {
-            lineTexts.push(currentLine.join(' '));
-            currentLine = [];
-          }
-          currentY = y;
-        }
-        currentLine.push(item.str);
-      });
-
-      if (currentLine.length > 0) {
-        lineTexts.push(currentLine.join(' '));
+      const textContent = await page.getTextContent();
+      
+      // If there's text content, use it
+      if (textContent.items.length > 0) {
+        return textContent.items.map(item => item.str).join(' ');
       }
+      
+      // If no text found, try OCR
+      const viewport = page.getViewport({ scale: 1.5 });
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
 
-      // Combine lines with proper spacing
-      const standardText = lineTexts.join('\n');
+      await page.render({
+        canvasContext: context,
+        viewport: viewport
+      }).promise;
 
-      // 2. Try OCR if text seems incomplete
-      if (standardText.split(/\s+/).length < 50 && tesseractWorker && workerInitialized.current) {
-        try {
-          const scale = 2.0; // Higher resolution for better OCR
-          const viewport = page.getViewport({ scale });
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          
-          // Use white background and high-quality rendering
-          context.fillStyle = 'white';
-          context.fillRect(0, 0, canvas.width, canvas.height);
-          context.imageSmoothingEnabled = true;
-          context.imageSmoothingQuality = 'high';
-
-          await page.render({
-            canvasContext: context,
-            viewport,
-            background: 'white',
-            intent: 'print'
-          }).promise;
-
-          // Configure OCR for maximum accuracy
-          await tesseractWorker.setParameters({
-            tessedit_ocr_engine_mode: 3, // Use both LSTM and Legacy
-            preserve_interword_spaces: '1',
-            textord_heavy_nr: 1,
-            tessedit_pageseg_mode: 1,
-            textord_min_linesize: 3,
-            tessedit_prefer_joined_punct: '0',
-            tessedit_write_images: true,
-            tessedit_create_pdf: '1'
-          });
-
-          const { data } = await tesseractWorker.recognize(canvas);
-          
-          // Combine OCR result with standard text
-          const combinedText = combineAndCleanTexts([standardText, data.text]);
-          extractedText = combinedText;
-
-          // Cleanup
-          canvas.width = 0;
-          canvas.height = 0;
-        } catch (ocrError) {
-          console.error(`OCR attempt failed for page ${pageNum}:`, ocrError);
-          extractedText = standardText; // Fallback to standard text
-        }
-      } else {
-        extractedText = standardText;
-      }
-
-      return extractedText || `[No text could be extracted from page ${pageNum}]`;
+      const worker = await createWorker();
+      const { data: { text } } = await worker.recognize(canvas);
+      await worker.terminate();
+      
+      return text;
     } catch (error) {
       console.error(`Error processing page ${pageNum}:`, error);
-      return `[Error extracting text from page ${pageNum}]`;
+      return '';
     }
-  };
-
-  const combineAndCleanTexts = (textArray) => {
-    // Join all text content first
-    const fullText = textArray
-      .filter(Boolean)
-      .join('\n')
-      .replace(/\s+/g, ' ')
-      .replace(/[^\S\r\n]+/g, ' ')
-      .replace(/\n\s*\n/g, '\n')
-      .trim();
-
-    // Remove duplicate lines while preserving order
-    const lines = fullText.split('\n');
-    const uniqueLines = Array.from(new Set(lines));
-
-    return uniqueLines.join('\n');
   };
 
   const extractTextFromPDF = async (file, range) => {
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await window.pdfjsLib.getDocument(arrayBuffer).promise;
+    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
     const textParts = [];
 
     for (let i = range.start; i <= range.end; i++) {
