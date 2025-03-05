@@ -51,6 +51,7 @@ export const PDFReader = ({ onTextExtracted }) => {
     try {
       const page = await pdf.getPage(pageNum);
       const textContent = await page.getTextContent();
+      let text = '';
       
       // Try built-in text extraction first
       const builtInText = textContent.items
@@ -58,31 +59,55 @@ export const PDFReader = ({ onTextExtracted }) => {
         .join(' ')
         .trim();
 
-      // If built-in extraction found text, use it
       if (builtInText) {
-        return builtInText;
+        text = builtInText;
+      } else {
+        // If no text found, use OCR
+        try {
+          // Render page to canvas with higher resolution for better OCR
+          const scale = 2.0; // Increase scale for better image quality
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+
+          await page.render({
+            canvasContext: context,
+            viewport: viewport,
+            transform: [scale, 0, 0, scale, 0, 0] // Apply scale transform
+          }).promise;
+
+          // Initialize Tesseract worker with additional configurations
+          const worker = await createWorker();
+          await worker.loadLanguage('eng');
+          await worker.initialize('eng');
+          await worker.setParameters({
+            tessedit_ocr_engine_mode: 3, // Use Legacy + LSTM mode
+            preserve_interword_spaces: '1',
+            tessedit_char_whitelist: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?@#$%&*()-+=:;"\'/ ', // Allow these characters
+          });
+
+          const { data: { text: ocrText } } = await worker.recognize(canvas);
+          await worker.terminate();
+
+          text = ocrText.trim();
+        } catch (ocrError) {
+          console.error(`OCR failed for page ${pageNum}:`, ocrError);
+          text = `[OCR failed for page ${pageNum}. The page might be an image that couldn't be processed.]`;
+        }
       }
-      
-      // If no text found, try OCR
-      const viewport = page.getViewport({ scale: 1.5 });
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
 
-      await page.render({
-        canvasContext: context,
-        viewport: viewport
-      }).promise;
+      // Clean up the extracted text
+      text = text
+        .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+        .replace(/[^\S\r\n]+/g, ' ') // Replace multiple whitespace with single space
+        .trim();
 
-      const worker = await createWorker();
-      const { data: { text } } = await worker.recognize(canvas);
-      await worker.terminate();
-      
-      return text || `[Page ${pageNum}: No text could be extracted]`;
+      return text || `[No text could be extracted from page ${pageNum}]`;
     } catch (error) {
       console.error(`Error processing page ${pageNum}:`, error);
-      return `[Error extracting text from page ${pageNum}]`;
+      return `[Error processing page ${pageNum}: ${error.message}]`;
     }
   };
 
