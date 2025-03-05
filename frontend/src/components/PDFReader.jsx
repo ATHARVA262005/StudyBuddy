@@ -1,5 +1,4 @@
 import React, { useState, useRef } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
 import { createWorker } from 'tesseract.js';
 
 export const PDFReader = ({ onTextExtracted }) => {
@@ -10,6 +9,25 @@ export const PDFReader = ({ onTextExtracted }) => {
   const [pageRange, setPageRange] = useState({ start: 1, end: 1 });
   const [topic, setTopic] = useState('');
   const [hasExtractedText, setHasExtractedText] = useState(false);
+  const [pdfJsLoaded, setPdfJsLoaded] = useState(false);
+
+  useEffect(() => {
+    // Check if PDF.js is already loaded
+    if (window.pdfjsLib) {
+      setPdfJsLoaded(true);
+    } else {
+      // Set up a listener to detect when PDF.js is loaded
+      const checkPdfJs = setInterval(() => {
+        if (window.pdfjsLib) {
+          setPdfJsLoaded(true);
+          clearInterval(checkPdfJs);
+        }
+      }, 100);
+      
+      // Clean up the interval
+      return () => clearInterval(checkPdfJs);
+    }
+  }, []);
 
   const handleFileChange = async (event) => {
     const selectedFile = event.target.files[0];
@@ -114,6 +132,14 @@ export const PDFReader = ({ onTextExtracted }) => {
       setIsProcessing(false);
     }
   };
+
+  if (!pdfJsLoaded) {
+    return (
+      <div className="bg-gray-800 rounded-lg shadow-xl p-6 text-center">
+        <p className="text-gray-300">Loading PDF reader components...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-gray-800 rounded-lg shadow-xl overflow-hidden border border-gray-700">
