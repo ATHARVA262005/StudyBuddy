@@ -1,5 +1,5 @@
 import React from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { createWorker } from 'tesseract.js';
 
 export const PDFReader = ({ onTextExtracted }) => {
@@ -11,6 +11,8 @@ export const PDFReader = ({ onTextExtracted }) => {
   const [topic, setTopic] = useState('');
   const [hasExtractedText, setHasExtractedText] = useState(false);
   const [pdfJsLoaded, setPdfJsLoaded] = useState(false);
+  const [tesseractWorker, setTesseractWorker] = useState(null);
+  const workerInitialized = useRef(false);
 
   useEffect(() => {
     // Check if PDF.js is already loaded
@@ -28,6 +30,38 @@ export const PDFReader = ({ onTextExtracted }) => {
       // Clean up the interval
       return () => clearInterval(checkPdfJs);
     }
+  }, []);
+
+  useEffect(() => {
+    const initWorker = async () => {
+      try {
+        const worker = await createWorker({
+          logger: progress => console.log('Tesseract loading:', progress),
+          errorHandler: err => console.error('Tesseract error:', err)
+        });
+        await worker.loadLanguage('eng');
+        await worker.initialize('eng');
+        await worker.setParameters({
+          tessedit_ocr_engine_mode: 3,
+          preserve_interword_spaces: '1'
+        });
+        setTesseractWorker(worker);
+        workerInitialized.current = true;
+      } catch (err) {
+        console.error('Failed to initialize Tesseract worker:', err);
+        setError('OCR initialization failed. Some features might not work properly.');
+      }
+    };
+
+    if (!workerInitialized.current) {
+      initWorker();
+    }
+
+    return () => {
+      if (tesseractWorker) {
+        tesseractWorker.terminate();
+      }
+    };
   }, []);
 
   const handleFileChange = async (event) => {
@@ -61,11 +95,9 @@ export const PDFReader = ({ onTextExtracted }) => {
 
       if (builtInText) {
         text = builtInText;
-      } else {
-        // If no text found, use OCR
+      } else if (tesseractWorker && workerInitialized.current) {
         try {
-          // Render page to canvas with higher resolution for better OCR
-          const scale = 2.0; // Increase scale for better image quality
+          const scale = 2.0;
           const viewport = page.getViewport({ scale });
           const canvas = document.createElement('canvas');
           const context = canvas.getContext('2d');
@@ -74,35 +106,22 @@ export const PDFReader = ({ onTextExtracted }) => {
 
           await page.render({
             canvasContext: context,
-            viewport: viewport,
-            transform: [scale, 0, 0, scale, 0, 0] // Apply scale transform
+            viewport: viewport
           }).promise;
 
-          // Initialize Tesseract worker with additional configurations
-          const worker = await createWorker();
-          await worker.loadLanguage('eng');
-          await worker.initialize('eng');
-          await worker.setParameters({
-            tessedit_ocr_engine_mode: 3, // Use Legacy + LSTM mode
-            preserve_interword_spaces: '1',
-            tessedit_char_whitelist: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?@#$%&*()-+=:;"\'/ ', // Allow these characters
-          });
-
-          const { data: { text: ocrText } } = await worker.recognize(canvas);
-          await worker.terminate();
-
+          const { data: { text: ocrText } } = await tesseractWorker.recognize(canvas);
           text = ocrText.trim();
+          
+          // Clean up canvas
+          canvas.width = 0;
+          canvas.height = 0;
         } catch (ocrError) {
           console.error(`OCR failed for page ${pageNum}:`, ocrError);
           text = `[OCR failed for page ${pageNum}. The page might be an image that couldn't be processed.]`;
         }
+      } else {
+        text = '[OCR not available. Please try reloading the page.]';
       }
-
-      // Clean up the extracted text
-      text = text
-        .replace(/\s+/g, ' ') // Replace multiple spaces with single space
-        .replace(/[^\S\r\n]+/g, ' ') // Replace multiple whitespace with single space
-        .trim();
 
       return text || `[No text could be extracted from page ${pageNum}]`;
     } catch (error) {
