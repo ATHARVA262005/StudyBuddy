@@ -84,106 +84,106 @@ export const PDFReader = ({ onTextExtracted }) => {
   const extractTextFromPage = async (pdf, pageNum) => {
     try {
       const page = await pdf.getPage(pageNum);
-      const textContent = await page.getTextContent();
       let extractedText = '';
 
-      // First attempt: Standard PDF text extraction
-      const standardText = textContent.items
-        .map(item => item.str)
-        .join(' ')
-        .trim();
+      // 1. Get text content with all possible options enabled
+      const textContent = await page.getTextContent({
+        normalizeWhitespace: true,
+        disableCombineTextItems: false,
+        includeMarkedContent: true
+      });
 
-      // Second attempt: Get text with layout information
-      const viewport = page.getViewport({ scale: 1.5 });
-      const textWithLayout = await page.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
-      const layoutText = textWithLayout.items
-        .sort((a, b) => b.transform[5] - a.transform[5] || a.transform[4] - b.transform[4])
-        .map(item => item.str)
-        .join(' ')
-        .trim();
+      // Sort text items by their vertical position first, then horizontal
+      const sortedItems = textContent.items.sort((a, b) => {
+        const yDiff = Math.abs(b.transform[5] - a.transform[5]);
+        if (yDiff < 5) { // If items are roughly on the same line
+          return a.transform[4] - b.transform[4]; // Sort by x position
+        }
+        return b.transform[5] - a.transform[5]; // Sort by y position
+      });
 
-      // Third attempt: OCR with enhanced settings
-      let ocrText = '';
-      if (tesseractWorker && workerInitialized.current) {
+      // Extract text preserving layout
+      let currentY = null;
+      let lineTexts = [];
+      let currentLine = [];
+
+      sortedItems.forEach(item => {
+        const y = Math.round(item.transform[5]);
+        if (currentY === null) {
+          currentY = y;
+        }
+
+        if (Math.abs(y - currentY) > 5) { // New line detected
+          if (currentLine.length > 0) {
+            lineTexts.push(currentLine.join(' '));
+            currentLine = [];
+          }
+          currentY = y;
+        }
+        currentLine.push(item.str);
+      });
+
+      if (currentLine.length > 0) {
+        lineTexts.push(currentLine.join(' '));
+      }
+
+      // Combine lines with proper spacing
+      const standardText = lineTexts.join('\n');
+
+      // 2. Try OCR if text seems incomplete
+      if (standardText.split(/\s+/).length < 50 && tesseractWorker && workerInitialized.current) {
         try {
+          const scale = 2.0; // Higher resolution for better OCR
+          const viewport = page.getViewport({ scale });
           const canvas = document.createElement('canvas');
           const context = canvas.getContext('2d');
-          const scale = 2.0; // Higher resolution for better OCR
           
-          // Set canvas size based on viewport
-          canvas.height = viewport.height * scale;
-          canvas.width = viewport.width * scale;
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
           
-          // Apply high-quality rendering settings
-          context.imageSmoothingEnabled = true;
-          context.imageSmoothingQuality = 'high';
+          // Use white background and high-quality rendering
           context.fillStyle = 'white';
           context.fillRect(0, 0, canvas.width, canvas.height);
+          context.imageSmoothingEnabled = true;
+          context.imageSmoothingQuality = 'high';
 
-          // Render PDF page to canvas with enhanced quality
           await page.render({
             canvasContext: context,
-            viewport: page.getViewport({ scale: scale }),
+            viewport,
             background: 'white',
-            transform: [scale, 0, 0, scale, 0, 0]
+            intent: 'print'
           }).promise;
 
-          // Configure OCR for better accuracy
+          // Configure OCR for maximum accuracy
           await tesseractWorker.setParameters({
-            tessedit_ocr_engine_mode: 3,
+            tessedit_ocr_engine_mode: 3, // Use both LSTM and Legacy
             preserve_interword_spaces: '1',
             textord_heavy_nr: 1,
             tessedit_pageseg_mode: 1,
-            tessedit_char_whitelist: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?@#$%&*()-+=:;"\'/ ',
-            tessjs_create_pdf: '1',
-            tessjs_create_hocr: '1'
+            textord_min_linesize: 3,
+            tessedit_prefer_joined_punct: '0',
+            tessedit_write_images: true,
+            tessedit_create_pdf: '1'
           });
 
-          // Perform OCR with confidence check
           const { data } = await tesseractWorker.recognize(canvas);
-          ocrText = data.text.trim();
+          
+          // Combine OCR result with standard text
+          const combinedText = combineAndCleanTexts([standardText, data.text]);
+          extractedText = combinedText;
 
-          // Clean up
+          // Cleanup
           canvas.width = 0;
           canvas.height = 0;
         } catch (ocrError) {
           console.error(`OCR attempt failed for page ${pageNum}:`, ocrError);
+          extractedText = standardText; // Fallback to standard text
         }
+      } else {
+        extractedText = standardText;
       }
 
-      // Combine all extracted text methods and clean the result
-      extractedText = combineAndCleanTexts([standardText, layoutText, ocrText]);
-      
-      // Verify extracted text quality
-      if (extractedText.split(/\s+/).length < 5) { // If we got very few words
-        console.warn(`Low word count detected on page ${pageNum}, attempting aggressive extraction`);
-        // Try one more time with different viewport scale
-        try {
-          const alternativeViewport = page.getViewport({ scale: 2.0 });
-          const canvas = document.createElement('canvas');
-          canvas.height = alternativeViewport.height;
-          canvas.width = alternativeViewport.width;
-          const context = canvas.getContext('2d');
-          
-          await page.render({
-            canvasContext: context,
-            viewport: alternativeViewport,
-            background: 'white'
-          }).promise;
-
-          if (tesseractWorker && workerInitialized.current) {
-            const { data } = await tesseractWorker.recognize(canvas);
-            const alternativeText = data.text.trim();
-            if (alternativeText.split(/\s+/).length > extractedText.split(/\s+/).length) {
-              extractedText = alternativeText;
-            }
-          }
-        } catch (fallbackError) {
-          console.error('Fallback extraction failed:', fallbackError);
-        }
-      }
-
-      return extractedText || `[No readable text found on page ${pageNum}]`;
+      return extractedText || `[No text could be extracted from page ${pageNum}]`;
     } catch (error) {
       console.error(`Error processing page ${pageNum}:`, error);
       return `[Error extracting text from page ${pageNum}]`;
@@ -191,26 +191,20 @@ export const PDFReader = ({ onTextExtracted }) => {
   };
 
   const combineAndCleanTexts = (textArray) => {
-    // Remove empty strings and combine unique content
-    const words = new Set();
-    textArray.filter(Boolean).forEach(text => {
-      text.split(/\s+/).forEach(word => {
-        if (word.length > 1) { // Only add words longer than 1 character
-          words.add(word);
-        }
-      });
-    });
-
-    // Join words back together with proper spacing
-    let combined = Array.from(words).join(' ');
-
-    // Clean up the text
-    return combined
+    // Join all text content first
+    const fullText = textArray
+      .filter(Boolean)
+      .join('\n')
       .replace(/\s+/g, ' ')
       .replace(/[^\S\r\n]+/g, ' ')
-      .replace(/\n\s*\n/g, '\n\n')
-      .replace(/[^\x20-\x7E\n]/g, '')
+      .replace(/\n\s*\n/g, '\n')
       .trim();
+
+    // Remove duplicate lines while preserving order
+    const lines = fullText.split('\n');
+    const uniqueLines = Array.from(new Set(lines));
+
+    return uniqueLines.join('\n');
   };
 
   const extractTextFromPDF = async (file, range) => {
