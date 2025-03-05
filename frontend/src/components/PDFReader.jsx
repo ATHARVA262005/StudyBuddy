@@ -12,7 +12,23 @@ export const PDFReader = ({ onTextExtracted }) => {
   const [hasExtractedText, setHasExtractedText] = useState(false);
   const [pdfJsLoaded, setPdfJsLoaded] = useState(false);
 
-  
+  useEffect(() => {
+    // Check if PDF.js is already loaded
+    if (window.pdfjsLib) {
+      setPdfJsLoaded(true);
+    } else {
+      // Set up a listener to detect when PDF.js is loaded
+      const checkPdfJs = setInterval(() => {
+        if (window.pdfjsLib) {
+          setPdfJsLoaded(true);
+          clearInterval(checkPdfJs);
+        }
+      }, 100);
+      
+      // Clean up the interval
+      return () => clearInterval(checkPdfJs);
+    }
+  }, []);
 
   const handleFileChange = async (event) => {
     const selectedFile = event.target.files[0];
