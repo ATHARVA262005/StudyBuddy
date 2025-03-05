@@ -85,96 +85,132 @@ export const PDFReader = ({ onTextExtracted }) => {
     try {
       const page = await pdf.getPage(pageNum);
       const textContent = await page.getTextContent();
-      let text = '';
-      
-      // Try built-in text extraction first
-      const builtInText = textContent.items
+      let extractedText = '';
+
+      // First attempt: Standard PDF text extraction
+      const standardText = textContent.items
         .map(item => item.str)
         .join(' ')
         .trim();
 
-      // Always run OCR if worker is available, then combine results
+      // Second attempt: Get text with layout information
+      const viewport = page.getViewport({ scale: 1.5 });
+      const textWithLayout = await page.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
+      const layoutText = textWithLayout.items
+        .sort((a, b) => b.transform[5] - a.transform[5] || a.transform[4] - b.transform[4])
+        .map(item => item.str)
+        .join(' ')
+        .trim();
+
+      // Third attempt: OCR with enhanced settings
+      let ocrText = '';
       if (tesseractWorker && workerInitialized.current) {
         try {
-          // Render page to canvas with higher resolution
-          const scale = 2.0;
-          const viewport = page.getViewport({ scale });
           const canvas = document.createElement('canvas');
           const context = canvas.getContext('2d');
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
-
-          // Use high-quality rendering
+          const scale = 2.0; // Higher resolution for better OCR
+          
+          // Set canvas size based on viewport
+          canvas.height = viewport.height * scale;
+          canvas.width = viewport.width * scale;
+          
+          // Apply high-quality rendering settings
           context.imageSmoothingEnabled = true;
           context.imageSmoothingQuality = 'high';
+          context.fillStyle = 'white';
+          context.fillRect(0, 0, canvas.width, canvas.height);
 
+          // Render PDF page to canvas with enhanced quality
           await page.render({
             canvasContext: context,
-            viewport: viewport,
-            background: 'white', // Ensure white background for better OCR
+            viewport: page.getViewport({ scale: scale }),
+            background: 'white',
             transform: [scale, 0, 0, scale, 0, 0]
           }).promise;
 
-          // Run OCR with optimized settings
+          // Configure OCR for better accuracy
           await tesseractWorker.setParameters({
-            tessedit_ocr_engine_mode: 3, // Use Legacy + LSTM modes
+            tessedit_ocr_engine_mode: 3,
             preserve_interword_spaces: '1',
-            textord_heavy_nr: 1, // Handle noisy images better
-            tessedit_pageseg_mode: 1, // Automatic page segmentation with OSD
-            tessedit_char_whitelist: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?@#$%&*()-+=:;"\'/ ', // Allow these characters
+            textord_heavy_nr: 1,
+            tessedit_pageseg_mode: 1,
+            tessedit_char_whitelist: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?@#$%&*()-+=:;"\'/ ',
+            tessjs_create_pdf: '1',
+            tessjs_create_hocr: '1'
           });
 
-          const { data: { text: ocrText } } = await tesseractWorker.recognize(canvas);
-          
-          // Clean up canvas
+          // Perform OCR with confidence check
+          const { data } = await tesseractWorker.recognize(canvas);
+          ocrText = data.text.trim();
+
+          // Clean up
           canvas.width = 0;
           canvas.height = 0;
-
-          // Combine built-in text and OCR results
-          const combinedText = combineTexts(builtInText, ocrText);
-          text = combinedText;
         } catch (ocrError) {
-          console.error(`OCR process for page ${pageNum}:`, ocrError);
-          // If OCR fails, fall back to built-in text
-          text = builtInText;
+          console.error(`OCR attempt failed for page ${pageNum}:`, ocrError);
         }
-      } else {
-        text = builtInText;
       }
 
-      // Clean and format the text
-      text = cleanText(text);
+      // Combine all extracted text methods and clean the result
+      extractedText = combineAndCleanTexts([standardText, layoutText, ocrText]);
       
-      return text || `[No text could be extracted from page ${pageNum}]`;
+      // Verify extracted text quality
+      if (extractedText.split(/\s+/).length < 5) { // If we got very few words
+        console.warn(`Low word count detected on page ${pageNum}, attempting aggressive extraction`);
+        // Try one more time with different viewport scale
+        try {
+          const alternativeViewport = page.getViewport({ scale: 2.0 });
+          const canvas = document.createElement('canvas');
+          canvas.height = alternativeViewport.height;
+          canvas.width = alternativeViewport.width;
+          const context = canvas.getContext('2d');
+          
+          await page.render({
+            canvasContext: context,
+            viewport: alternativeViewport,
+            background: 'white'
+          }).promise;
+
+          if (tesseractWorker && workerInitialized.current) {
+            const { data } = await tesseractWorker.recognize(canvas);
+            const alternativeText = data.text.trim();
+            if (alternativeText.split(/\s+/).length > extractedText.split(/\s+/).length) {
+              extractedText = alternativeText;
+            }
+          }
+        } catch (fallbackError) {
+          console.error('Fallback extraction failed:', fallbackError);
+        }
+      }
+
+      return extractedText || `[No readable text found on page ${pageNum}]`;
     } catch (error) {
       console.error(`Error processing page ${pageNum}:`, error);
-      return `[Error processing page ${pageNum}: ${error.message}]`;
+      return `[Error extracting text from page ${pageNum}]`;
     }
   };
 
-  // Helper function to clean and format text
-  const cleanText = (text) => {
-    return text
-      .replace(/\s+/g, ' ') // Replace multiple spaces with single space
-      .replace(/[^\S\r\n]+/g, ' ') // Replace multiple whitespace with single space
-      .replace(/\n\s*\n/g, '\n\n') // Normalize multiple newlines
-      .replace(/[^\x20-\x7E\n]/g, '') // Remove non-printable characters
+  const combineAndCleanTexts = (textArray) => {
+    // Remove empty strings and combine unique content
+    const words = new Set();
+    textArray.filter(Boolean).forEach(text => {
+      text.split(/\s+/).forEach(word => {
+        if (word.length > 1) { // Only add words longer than 1 character
+          words.add(word);
+        }
+      });
+    });
+
+    // Join words back together with proper spacing
+    let combined = Array.from(words).join(' ');
+
+    // Clean up the text
+    return combined
+      .replace(/\s+/g, ' ')
+      .replace(/[^\S\r\n]+/g, ' ')
+      .replace(/\n\s*\n/g, '\n\n')
+      .replace(/[^\x20-\x7E\n]/g, '')
       .trim();
-  };
-
-  // Helper function to combine texts from both extraction methods
-  const combineTexts = (builtInText, ocrText) => {
-    if (!builtInText && !ocrText) return '';
-    if (!builtInText) return ocrText;
-    if (!ocrText) return builtInText;
-
-    // Split texts into words and remove duplicates
-    const builtInWords = new Set(builtInText.split(/\s+/));
-    const ocrWords = new Set(ocrText.split(/\s+/));
-    const combinedWords = new Set([...builtInWords, ...ocrWords]);
-
-    // Join unique words back together
-    return Array.from(combinedWords).join(' ');
   };
 
   const extractTextFromPDF = async (file, range) => {
