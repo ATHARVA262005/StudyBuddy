@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-// Import Tesseract with direct module (more reliable)
-import * as Tesseract from 'tesseract.js';
+import { createWorker } from 'tesseract.js';
 
 export const PDFReader = ({ onTextExtracted }) => {
   const [file, setFile] = useState(null);
@@ -11,8 +10,6 @@ export const PDFReader = ({ onTextExtracted }) => {
   const [topic, setTopic] = useState('');
   const [hasExtractedText, setHasExtractedText] = useState(false);
   const [pdfJsLoaded, setPdfJsLoaded] = useState(false);
-  const [useOcr, setUseOcr] = useState(true);
-  const workerRef = useRef(null);
 
   useEffect(() => {
     // Check if PDF.js is already loaded
@@ -30,34 +27,6 @@ export const PDFReader = ({ onTextExtracted }) => {
       // Clean up the interval
       return () => clearInterval(checkPdfJs);
     }
-
-    // Initialize Tesseract worker on component mount
-    const initTesseract = async () => {
-      try {
-        // Create worker only once and store in ref
-        workerRef.current = await Tesseract.createWorker({
-          logger: m => console.log(m),
-          errorHandler: err => console.error('Tesseract error:', err)
-        });
-        
-        // Initialize with English language
-        await workerRef.current.load();
-        await workerRef.current.loadLanguage('eng');
-        await workerRef.current.initialize('eng');
-      } catch (err) {
-        console.error('Failed to initialize Tesseract:', err);
-        setUseOcr(false); // Disable OCR if initialization fails
-      }
-    };
-    
-    initTesseract();
-    
-    return () => {
-      // Clean up worker on component unmount
-      if (workerRef.current) {
-        workerRef.current.terminate();
-      }
-    };
   }, []);
 
   const handleFileChange = async (event) => {
@@ -68,7 +37,7 @@ export const PDFReader = ({ onTextExtracted }) => {
       
       try {
         const arrayBuffer = await selectedFile.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+        const pdf = await window.pdfjsLib.getDocument(arrayBuffer).promise;
         setPageCount(pdf.numPages);
         setPageRange({ start: 1, end: Math.min(5, pdf.numPages) });
       } catch (err) {
@@ -80,97 +49,46 @@ export const PDFReader = ({ onTextExtracted }) => {
   const extractTextFromPage = async (pdf, pageNum) => {
     try {
       const page = await pdf.getPage(pageNum);
-      
-      // First attempt: Standard PDF text extraction
       const textContent = await page.getTextContent();
-      const standardText = textContent.items
-        .map(item => item.str)
-        .join(' ')
-        .trim();
-        
-      // If standard extraction yielded a good amount of text, return it
-      if (standardText.length > 50) {
-        return standardText;
+      
+      // If there's text content, use it
+      if (textContent.items.length > 0) {
+        return textContent.items.map(item => item.str).join(' ');
       }
       
-      // If we have very little text and OCR is enabled, try OCR
-      if (useOcr && workerRef.current) {
-        try {
-          // Render page to canvas with improved settings
-          const scale = 2.0;
-          const viewport = page.getViewport({ scale });
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          
-          // Set canvas dimensions
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
-          
-          // Use white background for better OCR
-          context.fillStyle = 'white';
-          context.fillRect(0, 0, canvas.width, canvas.height);
-          
-          // Render PDF page to canvas
-          await page.render({
-            canvasContext: context,
-            viewport,
-            background: 'white',
-            intent: 'print'
-          }).promise;
-          
-          // Convert canvas to image data URL
-          const imageData = canvas.toDataURL('image/png');
-          
-          // Recognize text using pre-initialized worker
-          const { data } = await workerRef.current.recognize(imageData);
-          
-          // Clean up canvas
-          canvas.width = 0;
-          canvas.height = 0;
-          
-          // Return OCR text if it contains more content than standard extraction
-          if (data.text && data.text.length > standardText.length) {
-            return data.text;
-          }
-        } catch (ocrError) {
-          console.error(`OCR failed for page ${pageNum}:`, ocrError);
-        }
-      }
+      // If no text found, try OCR
+      const viewport = page.getViewport({ scale: 1.5 });
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      await page.render({
+        canvasContext: context,
+        viewport: viewport
+      }).promise;
+
+      const worker = await createWorker();
+      const { data: { text } } = await worker.recognize(canvas);
+      await worker.terminate();
       
-      // If we get here, return whatever text we got from standard extraction
-      // or a message if nothing was found
-      return standardText || `[Page ${pageNum} appears to contain images or scanned content that couldn't be processed]`;
+      return text;
     } catch (error) {
       console.error(`Error processing page ${pageNum}:`, error);
-      return `[Error extracting text from page ${pageNum}]`;
+      return '';
     }
   };
 
   const extractTextFromPDF = async (file, range) => {
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+    const pdf = await window.pdfjsLib.getDocument(arrayBuffer).promise;
     const textParts = [];
-    
-    // Process pages in batches to avoid memory issues
-    const batchSize = 3;
-    for (let i = range.start; i <= range.end; i += batchSize) {
-      const batch = [];
-      
-      // Create a batch of page promises
-      for (let j = i; j < i + batchSize && j <= range.end; j++) {
-        batch.push(extractTextFromPage(pdf, j));
+
+    for (let i = range.start; i <= range.end; i++) {
+      const text = await extractTextFromPage(pdf, i);
+      if (text.trim()) {
+        textParts.push(`\n=== Page ${i} ===\n\n${text}\n`);
       }
-      
-      // Process batch
-      const results = await Promise.all(batch);
-      
-      // Add results to textParts
-      results.forEach((text, index) => {
-        const pageNum = i + index;
-        if (text.trim()) {
-          textParts.push(`\n=== Page ${pageNum} ===\n\n${text}\n`);
-        }
-      });
     }
 
     const extractedText = textParts.join('\n');
@@ -362,20 +280,6 @@ export const PDFReader = ({ onTextExtracted }) => {
               )}
             </div>
           )}
-
-          {/* Add OCR toggle option */}
-          <div className="flex items-center space-x-2">
-            <input
-              id="ocr-toggle"
-              type="checkbox"
-              checked={useOcr}
-              onChange={(e) => setUseOcr(e.target.checked)}
-              className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-            />
-            <label htmlFor="ocr-toggle" className="text-sm text-gray-300">
-              Attempt OCR for image-based content (may affect performance)
-            </label>
-          </div>
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded relative">
