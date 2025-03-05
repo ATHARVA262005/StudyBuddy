@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+/* Custom Scrollbar for Webkit browsers (Chrome, Safari, etc.) */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: #1f2937; /* gray-800 */
+    border-radius: 6px;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: #374151; /* gray-700 */
+    border-radius: 6px;
+    border: 2px solid #1f2937; /* border color matching track */
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: #4b5563; /* gray-600 */
+  }
+  
+  /* Firefox scrollbar styling */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #374151 #1f2937;
+  }
+  
+  /* Add custom scrollbar class for specific containers */
+  .custom-scrollbar {
+    &::-webkit-scrollbar {
+      width: 8px;
+    }
+  
+    &::-webkit-scrollbar-track {
+      background: rgba(31, 41, 55, 0.5); /* semi-transparent gray-800 */
+    }
+  
+    &::-webkit-scrollbar-thumb {
+      background: rgba(55, 65, 81, 0.8); /* semi-transparent gray-700 */
+      border-radius: 4px;
+    }
+  
+    &::-webkit-scrollbar-thumb:hover {
+      background: rgba(75, 85, 99, 0.9); /* semi-transparent gray-600 */
+    }
+  }
