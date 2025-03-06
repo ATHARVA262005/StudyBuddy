@@ -11,17 +11,10 @@ export const ChatInterface = ({ initialContent, topic }) => {
   };
 
   const sendChatRequest = useCallback(async (promptText) => {
-    // Get the hashed API key from localStorage as a fallback
-    const hashedApiKey = localStorage.getItem('hashedApiKey');
-    
     const response = await fetch('https://studybuddybackendd.vercel.app/api/chat', {
       method: 'POST',
       credentials: 'include',
-      headers: { 
-        'Content-Type': 'application/json',
-        // Include the hashed API key in headers as a fallback
-        ...(hashedApiKey ? { 'X-Api-Key-Hash': hashedApiKey } : {})
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text: promptText,
         topic
