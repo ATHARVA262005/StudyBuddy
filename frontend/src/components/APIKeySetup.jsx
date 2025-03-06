@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 
 export const APIKeySetup = ({ onSetupComplete }) => {
   const [apiKey, setApiKey] = useState('');
   const [consent, setConsent] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const { setIsAuthenticated, checkAuthStatus } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -38,8 +40,15 @@ export const APIKeySetup = ({ onSetupComplete }) => {
       // Store the hashed API key in localStorage as a fallback
       if (data.hashedApiKey) {
         localStorage.setItem('hashedApiKey', data.hashedApiKey);
-        localStorage.setItem('apiKeyConfigured', 'true');
       }
+      
+      localStorage.setItem('apiKeyConfigured', 'true');
+      
+      // Update authentication state
+      setIsAuthenticated(true);
+      
+      // Verify the auth status with the server
+      await checkAuthStatus();
       
       onSetupComplete();
     } catch (err) {
@@ -57,7 +66,7 @@ export const APIKeySetup = ({ onSetupComplete }) => {
       <h2 className="text-xl font-semibold mb-4 text-gray-100">Set Up Gemini API</h2>
       <p className="text-sm text-gray-300 mb-4">
         To use the AI tutor, please provide your Gemini API key. 
-        Your key is stored locally and never sent to our servers.
+        Your key is securely processed for authentication.
       </p>
       
       <form onSubmit={handleSubmit}>
@@ -106,7 +115,7 @@ export const APIKeySetup = ({ onSetupComplete }) => {
       </form>
 
       <div className="mt-4 text-xs text-gray-400">
-        <p>Note: Your API key is stored securely in your browser's local storage and is never sent to our servers.</p>
+        <p>Note: Your API key is securely encrypted for authentication purposes.</p>
         <p className="mt-2">Need an API key? Visit the <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300">Google AI Studio</a></p>
       </div>
     </div>

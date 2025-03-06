@@ -1,10 +1,12 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
 
 export const ChatInterface = ({ initialContent, topic }) => {
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -31,7 +33,7 @@ export const ChatInterface = ({ initialContent, topic }) => {
   }, [topic]);
 
   const handleInitialExplanation = useCallback(async () => {
-    if (!initialContent || !topic) return;
+    if (!initialContent || !topic || !isAuthenticated) return;
 
     setIsTyping(true);
     try {
@@ -49,15 +51,17 @@ export const ChatInterface = ({ initialContent, topic }) => {
     } finally {
       setIsTyping(false);
     }
-  }, [initialContent, topic, sendChatRequest]);
+  }, [initialContent, topic, sendChatRequest, isAuthenticated]);
 
   useEffect(() => {
-    handleInitialExplanation();
-  }, [handleInitialExplanation]);
+    if (isAuthenticated && !authLoading) {
+      handleInitialExplanation();
+    }
+  }, [handleInitialExplanation, isAuthenticated, authLoading]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!inputMessage.trim() || isTyping) return;
+    if (!inputMessage.trim() || isTyping || !isAuthenticated) return;
 
     const newMessage = { role: 'user', content: inputMessage };
     setMessages(prev => [...prev, newMessage]);
@@ -118,6 +122,24 @@ export const ChatInterface = ({ initialContent, topic }) => {
       </div>
     );
   };
+
+  if (authLoading) {
+    return (
+      <div className="bg-gray-800 rounded-lg shadow-xl p-8 text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500 mx-auto"></div>
+        <p className="text-gray-300 mt-4">Verifying your API key...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="bg-gray-800 rounded-lg shadow-xl p-8 text-center">
+        <p className="text-yellow-400 text-lg mb-4">Authentication Required</p>
+        <p className="text-gray-300">Please set up your Gemini API key to use the chat interface.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-gray-800 rounded-lg shadow-xl overflow-hidden flex flex-col h-[600px] border border-gray-700">
