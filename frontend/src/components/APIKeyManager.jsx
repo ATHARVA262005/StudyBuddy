@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 export const APIKeyManager = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [apiKey, setApiKey] = useState('');
+  const [consent, setConsent] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -21,6 +22,7 @@ export const APIKeyManager = () => {
         },
         body: JSON.stringify({ 
           apiKey,
+          consent,
           domain: window.location.hostname
         })
       });
@@ -29,11 +31,18 @@ export const APIKeyManager = () => {
         throw new Error('Failed to update API key');
       }
 
-      // Update local indicator
-      localStorage.setItem('apiKeyConfigured', 'true');
+      // Get the response data which includes the hashed API key
+      const data = await response.json();
+      
+      // Store the hashed API key in localStorage as a fallback
+      if (data.hashedApiKey) {
+        localStorage.setItem('hashedApiKey', data.hashedApiKey);
+        localStorage.setItem('apiKeyConfigured', 'true');
+      }
       
       setIsModalOpen(false);
       setApiKey('');
+      setConsent(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -63,20 +72,39 @@ export const APIKeyManager = () => {
                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md mb-4 text-white placeholder-gray-400"
                 required
               />
+              
+              <div className="flex items-start mb-4">
+                <input
+                  type="checkbox"
+                  id="update-consent"
+                  checked={consent}
+                  onChange={(e) => setConsent(e.target.checked)}
+                  className="h-4 w-4 mt-1 text-indigo-600 focus:ring-indigo-500 border-gray-600 rounded bg-gray-700"
+                  required
+                />
+                <label htmlFor="update-consent" className="ml-2 text-sm text-gray-300">
+                  I consent to the storage and use of my API key for making requests to the Gemini API.
+                </label>
+              </div>
+              
               {error && (
                 <p className="text-red-400 text-sm mb-4">{error}</p>
               )}
               <div className="flex justify-end space-x-3">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={() => {
+                    setIsModalOpen(false);
+                    setApiKey('');
+                    setConsent(false);
+                  }}
                   className="px-4 py-2 text-sm text-gray-300 hover:text-white"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={isLoading || !apiKey}
+                  disabled={isLoading || !apiKey || !consent}
                   className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-600"
                 >
                   {isLoading ? 'Updating...' : 'Update Key'}

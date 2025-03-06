@@ -25,7 +25,9 @@ const App = () => {
       
       // First check local storage as a fallback
       const localAuthStatus = localStorage.getItem('apiKeyConfigured');
-      if (localAuthStatus === 'true') {
+      const hashedApiKey = localStorage.getItem('hashedApiKey');
+      
+      if (localAuthStatus === 'true' && hashedApiKey) {
         setIsApiKeySet(true);
         setIsChecking(false);
         return;
@@ -45,6 +47,8 @@ const App = () => {
         }
         
         const data = await response.json();
+        console.log('Auth check response:', data); // Added for debugging
+        
         setIsApiKeySet(data.isAuthenticated);
         
         // If authenticated, set local storage indicator

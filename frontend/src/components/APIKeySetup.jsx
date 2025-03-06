@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 export const APIKeySetup = ({ onSetupComplete }) => {
   const [apiKey, setApiKey] = useState('');
+  const [consent, setConsent] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -20,6 +21,7 @@ export const APIKeySetup = ({ onSetupComplete }) => {
         },
         body: JSON.stringify({ 
           apiKey,
+          consent,
           // Add domain info to help with cookie settings
           domain: window.location.hostname
         })
@@ -30,8 +32,14 @@ export const APIKeySetup = ({ onSetupComplete }) => {
         throw new Error(errorData.error || 'Failed to set up API key');
       }
 
-      // Store a local indicator that auth was completed
-      localStorage.setItem('apiKeyConfigured', 'true');
+      // Get the response data which includes the hashed API key
+      const data = await response.json();
+      
+      // Store the hashed API key in localStorage as a fallback
+      if (data.hashedApiKey) {
+        localStorage.setItem('hashedApiKey', data.hashedApiKey);
+        localStorage.setItem('apiKeyConfigured', 'true');
+      }
       
       onSetupComplete();
     } catch (err) {
@@ -67,13 +75,29 @@ export const APIKeySetup = ({ onSetupComplete }) => {
             />
           </div>
 
+          <div className="flex items-start">
+            <input
+              type="checkbox"
+              id="consent"
+              checked={consent}
+              onChange={(e) => setConsent(e.target.checked)}
+              className="h-4 w-4 mt-1 text-indigo-600 focus:ring-indigo-500 border-gray-600 rounded bg-gray-700"
+              required
+            />
+            <label htmlFor="consent" className="ml-2 text-sm text-gray-300">
+              I consent to the storage and use of my API key for making requests to the Gemini API. 
+              I understand that my API key will be encrypted and used only for the purpose of 
+              generating AI responses for my study materials.
+            </label>
+          </div>
+
           {error && (
             <div className="text-red-400 text-sm">{error}</div>
           )}
 
           <button
             type="submit"
-            disabled={isLoading || !apiKey}
+            disabled={isLoading || !apiKey || !consent}
             className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-600"
           >
             {isLoading ? 'Setting up...' : 'Set API Key'}
