@@ -7,8 +7,9 @@ import dotenv from 'dotenv';
 
 const app = express();
 
+// Updated CORS configuration to allow both production and development origins
 app.use(cors({
-  origin: 'https://studybuddy.atharvaralegankar.tech',
+  origin: ['https://studybuddy.atharvaralegankar.tech', 'http://localhost:5173'],
   methods: ['GET', 'POST'],
   credentials: true
 }));
@@ -74,6 +75,7 @@ app.post('/api/chat', async (req, res) => {
   try {
     const { text, topic } = req.body;
     const keyId = req.cookies.apiKeyId;
+    console.log('API key ID:', keyId);
 
     if (!keyId || !apiKeys.has(keyId)) {
       return res.status(401).json({ error: 'Please set up your API key first' });
