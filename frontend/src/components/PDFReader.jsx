@@ -10,8 +10,30 @@ export const PDFReader = ({ onTextExtracted }) => {
   const [topic, setTopic] = useState('');
   const [hasExtractedText, setHasExtractedText] = useState(false);
   const [pdfJsLoaded, setPdfJsLoaded] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState({ page: 0, progress: 0 });
+  const workerRef = useRef(null);
 
   useEffect(() => {
+    // Initialize Tesseract worker
+    const initWorker = async () => {
+      try {
+        workerRef.current = await createWorker({
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              setOcrProgress(prev => ({ ...prev, progress: m.progress }));
+            }
+          }
+        });
+        await workerRef.current.load();
+        await workerRef.current.loadLanguage('eng');
+        await workerRef.current.initialize('eng');
+      } catch (err) {
+        console.error('Failed to initialize OCR worker:', err);
+      }
+    };
+
+    initWorker();
+
     // Check if PDF.js is already loaded
     if (window.pdfjsLib) {
       setPdfJsLoaded(true);
@@ -25,7 +47,13 @@ export const PDFReader = ({ onTextExtracted }) => {
       }, 100);
       
       // Clean up the interval
-      return () => clearInterval(checkPdfJs);
+      return () => {
+        clearInterval(checkPdfJs);
+        // Clean up the worker when component unmounts
+        if (workerRef.current) {
+          workerRef.current.terminate();
+        }
+      };
     }
   }, []);
 
@@ -48,6 +76,7 @@ export const PDFReader = ({ onTextExtracted }) => {
 
   const extractTextFromPage = async (pdf, pageNum) => {
     try {
+      setOcrProgress({ page: pageNum, progress: 0 });
       const page = await pdf.getPage(pageNum);
       const textContent = await page.getTextContent();
       
@@ -68,11 +97,26 @@ export const PDFReader = ({ onTextExtracted }) => {
         viewport: viewport
       }).promise;
 
-      const worker = await createWorker();
-      const { data: { text } } = await worker.recognize(canvas);
-      await worker.terminate();
+      // Convert canvas to image data for OCR
+      const imageData = canvas.toDataURL('image/png');
       
-      return text;
+      if (!workerRef.current) {
+        // Reinitialize worker if needed
+        workerRef.current = await createWorker({
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              setOcrProgress(prev => ({ ...prev, progress: m.progress }));
+            }
+          }
+        });
+        await workerRef.current.load();
+        await workerRef.current.loadLanguage('eng');
+        await workerRef.current.initialize('eng');
+      }
+      
+      const { data } = await workerRef.current.recognize(imageData);
+      
+      return data.text;
     } catch (error) {
       console.error(`Error processing page ${pageNum}:`, error);
       return '';
@@ -147,6 +191,20 @@ export const PDFReader = ({ onTextExtracted }) => {
         <h2 className="text-xl font-medium text-gray-100">Upload PDF Document</h2>
         <p className="mt-1 max-w-2xl text-sm text-gray-300">Select a PDF file to extract and analyze</p>
       </div>
+      
+      {isProcessing && ocrProgress.page > 0 && (
+        <div className="px-4 py-3 bg-gray-800 border-t border-gray-700">
+          <div className="text-sm text-gray-300 mb-1">
+            Processing page {ocrProgress.page} - OCR progress: {Math.round(ocrProgress.progress * 100)}%
+          </div>
+          <div className="w-full bg-gray-700 rounded-full h-2">
+            <div 
+              className="bg-indigo-500 h-2 rounded-full" 
+              style={{ width: `${Math.round(ocrProgress.progress * 100)}%` }}
+            ></div>
+          </div>
+        </div>
+      )}
       
       <div className="px-4 py-5 sm:p-6 bg-gray-900">
         <div className="space-y-6">
