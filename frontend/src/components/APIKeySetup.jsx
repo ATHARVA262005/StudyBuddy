@@ -18,7 +18,11 @@ export const APIKeySetup = ({ onSetupComplete }) => {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        body: JSON.stringify({ apiKey })
+        body: JSON.stringify({ 
+          apiKey,
+          // Add domain info to help with cookie settings
+          domain: window.location.hostname
+        })
       });
 
       if (!response.ok) {
@@ -26,6 +30,9 @@ export const APIKeySetup = ({ onSetupComplete }) => {
         throw new Error(errorData.error || 'Failed to set up API key');
       }
 
+      // Store a local indicator that auth was completed
+      localStorage.setItem('apiKeyConfigured', 'true');
+      
       onSetupComplete();
     } catch (err) {
       console.error('Setup error:', err);

@@ -19,13 +19,19 @@ export const APIKeyManager = () => {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        body: JSON.stringify({ apiKey })
+        body: JSON.stringify({ 
+          apiKey,
+          domain: window.location.hostname
+        })
       });
 
       if (!response.ok) {
         throw new Error('Failed to update API key');
       }
 
+      // Update local indicator
+      localStorage.setItem('apiKeyConfigured', 'true');
+      
       setIsModalOpen(false);
       setApiKey('');
     } catch (err) {

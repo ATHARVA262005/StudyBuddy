@@ -22,12 +22,35 @@ const App = () => {
   useEffect(() => {
     const checkApiKeyStatus = async () => {
       setIsChecking(true);
+      
+      // First check local storage as a fallback
+      const localAuthStatus = localStorage.getItem('apiKeyConfigured');
+      if (localAuthStatus === 'true') {
+        setIsApiKeySet(true);
+        setIsChecking(false);
+        return;
+      }
+      
       try {
         const response = await fetch('https://studybuddybackendd.vercel.app/api/check-auth', {
-          credentials: 'include'
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json'
+          }
         });
+        
+        if (!response.ok) {
+          throw new Error('Auth check failed');
+        }
+        
         const data = await response.json();
         setIsApiKeySet(data.isAuthenticated);
+        
+        // If authenticated, set local storage indicator
+        if (data.isAuthenticated) {
+          localStorage.setItem('apiKeyConfigured', 'true');
+        }
       } catch (error) {
         console.error('Auth check failed:', error);
         setIsApiKeySet(false);
@@ -59,7 +82,7 @@ const App = () => {
     
     try {
       // Clear API key from server
-      await fetch('http://localhost:3000/api/clear-auth', {
+      await fetch('https://studybuddybackendd.vercel.app/api/clear-auth', {
         method: 'POST',
         credentials: 'include'
       });
