@@ -10,9 +10,13 @@ const app = express();
 // Updated CORS configuration to allow both production and development origins
 app.use(cors({
   origin: ['https://studybuddy.atharvaralegankar.tech', 'http://localhost:5173'],
-  methods: ['GET', 'POST'],
-  credentials: true
+  methods: ['GET', 'POST', 'OPTIONS'],
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Accept']
 }));
+
+// Handle preflight requests
+app.options('*', cors());
 
 app.use(express.json());
 app.use(cookieParser());
@@ -27,6 +31,18 @@ app.post('/api/setup', async (req, res) => {
   }
 
   try {
+    // Test the API key first to make sure it's valid
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    
+    try {
+      // Simple test request to validate API key
+      await model.generateContent('Test API key validity');
+    } catch (apiError) {
+      console.error('Invalid API key:', apiError);
+      return res.status(401).json({ error: 'Invalid API key. Please check and try again.' });
+    }
+
     // Check if user already has a key
     const existingKeyId = req.cookies.apiKeyId;
     if (existingKeyId) {
@@ -36,10 +52,14 @@ app.post('/api/setup', async (req, res) => {
       
       apiKeys.set(existingKeyId, {
         hashedKey,
-        genAI: new GoogleGenerativeAI(apiKey)
+        genAI
       });
 
-      return res.json({ success: true, message: 'API key updated successfully' });
+      return res.json({ 
+        success: true, 
+        message: 'API key updated successfully',
+        hashedApiKey: hashedKey
+      });
     }
 
     // If no existing key, create new one
@@ -53,18 +73,21 @@ app.post('/api/setup', async (req, res) => {
     // Store the hashed key and Gemini instance
     apiKeys.set(keyId, {
       hashedKey,
-      genAI: new GoogleGenerativeAI(apiKey)
+      genAI
     });
 
     // Set cookie with the keyId
     res.cookie('apiKeyId', keyId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: 'none', // Changed to 'none' to allow cross-site requests
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     });
 
-    res.json({ success: true });
+    res.json({ 
+      success: true,
+      hashedApiKey: hashedKey
+    });
   } catch (error) {
     console.error('Setup error:', error);
     res.status(500).json({ error: 'Failed to setup API key' });
@@ -75,7 +98,7 @@ app.post('/api/chat', async (req, res) => {
   try {
     const { text, topic } = req.body;
     const keyId = req.cookies.apiKeyId;
-    console.log('API key ID:', keyId);
+    console.log('Request received for chat. API key ID present:', !!keyId);
 
     if (!keyId || !apiKeys.has(keyId)) {
       return res.status(401).json({ error: 'Please set up your API key first' });
@@ -134,6 +157,7 @@ app.post('/api/chat', async (req, res) => {
 // Add endpoint to check if API key is set
 app.get('/api/check-auth', async (req, res) => {
   const keyId = req.cookies.apiKeyId;
+  console.log('Checking auth, keyId present:', !!keyId);
   
   if (!keyId || !apiKeys.has(keyId)) {
     // Clear any invalid cookies
@@ -144,7 +168,7 @@ app.get('/api/check-auth', async (req, res) => {
   // Verify the API key is still valid
   try {
     const keyData = apiKeys.get(keyId);
-    const model = keyData.genAI.getGenerativeModel({ model: 'gemini-1.5-pro' }); // Updated model name
+    const model = keyData.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     await model.generateContent('test connection'); // Quick validation
     return res.json({ isAuthenticated: true });
   } catch (error) {
@@ -167,7 +191,12 @@ app.post('/api/clear-auth', (req, res) => {
     apiKeys.delete(keyId);
   }
   
-  res.clearCookie('apiKeyId');
+  res.clearCookie('apiKeyId', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'none'
+  });
+  
   res.json({ success: true });
 });
 
